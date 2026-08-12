@@ -1,9 +1,8 @@
 """Web interface for running the VPC MVP inside GitHub Codespaces."""
 
-from pathlib import Path
-
 import cv2
-from flask import Flask, Response, render_template_string
+import numpy as np
+from flask import Flask, render_template_string, request
 
 from .vision import detect_faces, load_face_detector
 
@@ -81,9 +80,6 @@ def index():
 
 @app.post("/detect")
 def detect():
-    # Flask receives the current browser frame; no image is persisted to disk.
-    import numpy as np
-
     data = request.get_data()
     image = cv2.imdecode(np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_COLOR)
     if image is None:
