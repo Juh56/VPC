@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+.env
+.DS_Store
+
+# Dados e imagens locais
+data/*
+!data/.gitkeep
+*.jpg
+*.jpeg
+*.png
+*.mp4
