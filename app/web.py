@@ -1,92 +1,63 @@
-"""Web interface for running the VPC MVP inside GitHub Codespaces."""
+"""Static-image web interface for the VPC MVP."""
+
+from pathlib import Path
 
 import cv2
-import numpy as np
-from flask import Flask, render_template_string, request
+from flask import Flask, render_template_string, request, send_from_directory
 
 from .vision import detect_faces, load_face_detector
 
 app = Flask(__name__)
 _detector = load_face_detector()
+OUTPUT_DIR = Path("data/output")
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 HTML = """<!doctype html>
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>VPC — Visão Computacional</title>
-  <style>
-    body { font-family: system-ui, sans-serif; max-width: 900px; margin: 40px auto; padding: 0 20px; }
-    video { width: 100%; max-width: 720px; border-radius: 12px; background: #111; }
-    button { padding: 10px 16px; margin: 8px 4px 8px 0; cursor: pointer; }
-    #status { margin: 12px 0; }
-  </style>
+  <title>VPC — Imagem estática</title>
 </head>
 <body>
   <h1>VPC — Detecção de Rostos</h1>
-  <p>O navegador fornece a câmera e o Codespace executa o processamento.</p>
-  <video id="video" autoplay playsinline></video>
-  <div>
-    <button onclick="startCamera()">Iniciar câmera</button>
-    <button onclick="stopCamera()">Parar</button>
-  </div>
-  <p id="status">Câmera parada.</p>
-  <canvas id="canvas" hidden></canvas>
-<script>
-let stream;
-let timer;
-const video = document.getElementById('video');
-const canvas = document.getElementById('canvas');
-const status = document.getElementById('status');
-
-async function startCamera() {
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({video: true, audio: false});
-    video.srcObject = stream;
-    status.textContent = 'Câmera ativa.';
-    clearInterval(timer);
-    timer = setInterval(sendFrame, 500);
-  } catch (error) {
-    status.textContent = 'Não foi possível acessar a câmera: ' + error.message;
-  }
-}
-
-function stopCamera() {
-  clearInterval(timer);
-  if (stream) stream.getTracks().forEach(track => track.stop());
-  video.srcObject = null;
-  status.textContent = 'Câmera parada.';
-}
-
-async function sendFrame() {
-  if (!video.videoWidth) return;
-  canvas.width = video.videoWidth;
-  canvas.height = video.videoHeight;
-  canvas.getContext('2d').drawImage(video, 0, 0);
-  const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.75));
-  const response = await fetch('/detect', {method: 'POST', body: blob});
-  const data = await response.json();
-  status.textContent = `Rostos detectados: ${data.faces}`;
-}
-</script>
+  <p>Envie uma imagem para detectar e marcar os rostos encontrados.</p>
+  <form method="post" enctype="multipart/form-data">
+    <input type="file" name="image" accept="image/*" required>
+    <button type="submit">Processar imagem</button>
+  </form>
+  {% if message %}<p>{{ message }}</p>{% endif %}
+  {% if result %}<p>Rostos detectados: <strong>{{ count }}</strong></p><img src="{{ result }}" alt="Resultado da detecção" style="max-width:100%;height:auto">{% endif %}
 </body>
 </html>"""
 
 
-@app.get("/")
+@app.route("/", methods=["GET", "POST"])
 def index():
-    return render_template_string(HTML)
+    if request.method == "GET":
+        return render_template_string(HTML, message=None, result=None)
 
+    uploaded = request.files.get("image")
+    if uploaded is None or not uploaded.filename:
+        return render_template_string(HTML, message="Selecione uma imagem.", result=None)
 
-@app.post("/detect")
-def detect():
-    data = request.get_data()
-    image = cv2.imdecode(np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_COLOR)
+    data = uploaded.read()
+    image = cv2.imdecode(__import__("numpy").frombuffer(data, dtype="uint8"), cv2.IMREAD_COLOR)
     if image is None:
-        return {"error": "Imagem inválida"}, 400
+        return render_template_string(HTML, message="Arquivo de imagem inválido.", result=None)
 
     faces = detect_faces(image, _detector)
-    return {"faces": len(faces)}
+    for x, y, width, height in faces:
+        cv2.rectangle(image, (x, y), (x + width, y + height), (0, 255, 0), 2)
+
+    output_name = "resultado.jpg"
+    cv2.imwrite(str(OUTPUT_DIR / output_name), image)
+    return render_template_string(HTML, message="Imagem processada.", count=len(faces), result=f"/result/{output_name}")
+
+
+@app.get("/result/<path:filename>")
+def result(filename):
+    return send_from_directory(OUTPUT_DIR, filename)
 
 
 def run() -> None:
